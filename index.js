@@ -10,7 +10,9 @@ const DEEPSEEK_API_KEY = 'sk-bdedac6848054c5cbf85316a0705df57';
 
 console.log('🚀 Iniciando WhatsApp Bot con DeepSeek...');
 
-// CONFIGURACIÓN ESPECIAL PARA ENTORNOS CLOUD
+let qrCodeUrl = '';
+let currentQR = '';
+
 const client = new Client({
     authStrategy: new LocalAuth({
         clientId: "railway-bot",
@@ -25,51 +27,50 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu',
-            '--single-process',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
-            '--max-old-space-size=512'
+            '--disable-gpu'
         ]
-    },
-    webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
     }
 });
 
-// Mostrar QR para conectar
+// Mostrar QR de alta calidad
 client.on('qr', (qr) => {
-    console.log('\n📱 ESCANEA ESTE CÓDIGO QR CON WHATSAPP:');
+    console.log('\n📱 CÓDIGO QR GENERADO:');
+    console.log('═'.repeat(50));
+    
+    // Generar QR en terminal (pero más grande)
+    qrcode.generate(qr, { small: false }, function (qrcode) {
+        console.log(qrcode);
+    });
+    
+    // También mostrar como URL para escanear desde otro dispositivo
+    qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`;
+    currentQR = qr;
+    
+    console.log('\n🔗 URL ALTERNATIVA PARA ESCANEAR:');
+    console.log(qrCodeUrl);
+    console.log('\n📝 INSTRUCCIONES:');
     console.log('1. Abre WhatsApp en tu teléfono');
     console.log('2. Ve a Ajustes → Dispositivos vinculados → Vincular un dispositivo');
-    console.log('3. Escanea este código:\n');
-    qrcode.generate(qr, { small: true });
+    console.log('3. ESCANEA el código QR de arriba O');
+    console.log('4. Abre este enlace en tu teléfono: ' + qrCodeUrl);
+    console.log('═'.repeat(50));
 });
 
-// Cuando esté listo
 client.on('ready', () => {
-    console.log('\n✅ BOT CONECTADO EXITOSAMENTE!');
+    console.log('\n🎉 ¡BOT CONECTADO EXITOSAMENTE!');
     console.log('🤖 Ahora puedo responder mensajes automáticamente');
-    console.log('💬 Envía un mensaje a este número desde WhatsApp\n');
+    qrCodeUrl = ''; // Limpiar QR una vez conectado
 });
 
 // Función para hablar con DeepSeek
 async function chatWithDeepSeek(mensaje) {
     try {
-        console.log('🔄 Consultando a DeepSeek...');
-        
         const response = await axios.post('https://api.deepseek.com/v1/chat/completions', {
             model: 'deepseek-chat',
             messages: [
                 {
                     role: 'system',
-                    content: `Eres un asistente útil que responde mensajes de WhatsApp. 
-                    Responde de manera natural y conversacional en el mismo idioma del usuario.
-                    Sé amable, conciso y útil. Mantén las respuestas apropiadas para WhatsApp.
-                    Máximo 3-4 líneas por respuesta.`
+                    content: `Eres un asistente útil en WhatsApp. Responde de manera natural y concisa. Usa el mismo idioma del usuario.`
                 },
                 {
                     role: 'user',
@@ -77,8 +78,7 @@ async function chatWithDeepSeek(mensaje) {
                 }
             ],
             max_tokens: 500,
-            temperature: 0.7,
-            stream: false
+            temperature: 0.7
         }, {
             headers: {
                 'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
@@ -89,163 +89,141 @@ async function chatWithDeepSeek(mensaje) {
 
         return response.data.choices[0].message.content;
     } catch (error) {
-        console.error('❌ Error con DeepSeek:', error.message);
-        
-        if (error.response?.status === 401) {
-            return '🔑 Error: API Key de DeepSeek incorrecta. Verifica la configuración.';
-        } else if (error.response?.status === 429) {
-            return '⏰ Límite de uso excedido. Por favor espera un momento.';
-        } else {
-            return '🤖 Lo siento, estoy teniendo problemas técnicos. ¿Podrías intentarlo de nuevo?';
-        }
+        console.error('Error con DeepSeek:', error.message);
+        return '🤖 Ocurrió un error. Por favor intenta de nuevo.';
     }
 }
 
-// Manejar mensajes entrantes
+// Manejar mensajes
 client.on('message', async (message) => {
-    // Ignorar mensajes propios, de estados y broadcasts
-    if (message.fromMe || message.isStatus || message.broadcast) return;
+    if (message.fromMe || message.isStatus) return;
     
     const texto = message.body.trim();
+    if (!texto || texto.length < 1) return;
     
-    // Ignorar mensajes vacíos, comandos o muy cortos
-    if (!texto || texto.length < 1 || texto.startsWith('/')) return;
-    
-    console.log(`\n📩 Mensaje recibido de: ${message.from}`);
-    console.log(`💬 Contenido: ${texto}`);
+    console.log(`\n📩 Mensaje de ${message.from}: ${texto}`);
     
     try {
-        // Mostrar que está escribiendo
         await message.chat.sendStateTyping();
-        
-        // Obtener respuesta de DeepSeek
         const respuesta = await chatWithDeepSeek(texto);
-        
-        console.log(`🤖 Respuesta DeepSeek: ${respuesta.substring(0, 100)}...`);
-        
-        // Enviar respuesta
         await message.reply(respuesta);
-        console.log('✅ Respuesta enviada exitosamente');
-        
+        console.log('✅ Respuesta enviada');
     } catch (error) {
-        console.error('❌ Error procesando mensaje:', error);
-        try {
-            await message.reply('⚠️ Ocurrió un error al procesar tu mensaje. Por favor intenta de nuevo.');
-        } catch (replyError) {
-            console.error('❌ Error enviando mensaje de error:', replyError);
-        }
+        console.error('Error:', error);
+        await message.reply('⚠️ Error al procesar mensaje.');
     }
 });
 
-// Manejar eventos de conexión
-client.on('authenticated', () => {
-    console.log('🔑 Autenticación de WhatsApp exitosa');
+client.on('auth_failure', () => {
+    console.log('❌ Error de autenticación. Reiniciando...');
 });
 
-client.on('auth_failure', (msg) => {
-    console.error('❌ Error de autenticación:', msg);
-    console.log('🔄 Reiniciando en 15 segundos...');
-    setTimeout(() => {
-        client.initialize();
-    }, 15000);
+client.on('disconnected', () => {
+    console.log('❌ Desconectado. Reiniciando...');
 });
 
-client.on('disconnected', (reason) => {
-    console.log('❌ Desconectado de WhatsApp:', reason);
-    console.log('🔄 Reiniciando en 15 segundos...');
-    setTimeout(() => {
-        client.initialize();
-    }, 15000);
-});
-
-// Inicializar bot después de un breve delay
+// Inicializar bot
 setTimeout(() => {
-    console.log('🔄 Inicializando cliente de WhatsApp...');
+    console.log('🔄 Inicializando WhatsApp...');
     client.initialize();
-}, 2000);
+}, 1000);
 
-// Servidor web simple para Railway
+// Servidor web MEJORADO para mostrar QR
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <title>🤖 WhatsApp Bot con DeepSeek</title>
-                <meta charset="utf-8">
-                <style>
-                    body { 
-                        font-family: Arial, sans-serif; 
-                        max-width: 800px; 
-                        margin: 0 auto; 
-                        padding: 20px; 
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        color: white;
-                        min-height: 100vh;
-                    }
-                    .container { 
-                        background: rgba(255,255,255,0.1); 
-                        padding: 30px; 
-                        border-radius: 15px; 
-                        backdrop-filter: blur(10px);
-                    }
-                    h1 { text-align: center; }
-                    .status { 
-                        background: rgba(76, 175, 80, 0.2); 
-                        padding: 15px; 
-                        border-radius: 8px; 
-                        margin: 20px 0; 
-                    }
-                    .log { 
-                        background: rgba(0,0,0,0.3); 
-                        padding: 15px; 
-                        border-radius: 8px; 
-                        font-family: monospace;
-                        white-space: pre-wrap;
-                        max-height: 300px;
-                        overflow-y: auto;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>🤖 WhatsApp Bot con DeepSeek</h1>
-                    <div class="status">
-                        <h3>✅ Bot funcionando correctamente</h3>
-                        <p>El bot está activo y listo para responder mensajes.</p>
-                        <p><strong>Revisa la consola en Railway para ver el código QR y los logs.</strong></p>
-                    </div>
-                    <h3>📊 Estado del servicio:</h3>
-                    <ul>
-                        <li>🤖 WhatsApp Bot: <span style="color: #4CAF50;">● Conectado</span></li>
-                        <li>🧠 DeepSeek AI: <span style="color: #4CAF50;">● Activo</span></li>
-                        <li>🌐 Servidor: <span style="color: #4CAF50;">● Online</span></li>
-                    </ul>
-                    <p><em>Para conectar WhatsApp, escanea el código QR que aparece en los logs de Railway.</em></p>
-                </div>
-            </body>
-        </html>
-    `);
-});
-
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'healthy', 
-        service: 'WhatsApp DeepSeek Bot',
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'production'
-    });
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>🤖 WhatsApp Bot QR</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body { 
+                font-family: Arial, sans-serif; 
+                max-width: 800px; 
+                margin: 0 auto; 
+                padding: 20px; 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                text-align: center;
+            }
+            .container { 
+                background: rgba(255,255,255,0.1); 
+                padding: 30px; 
+                border-radius: 15px; 
+                backdrop-filter: blur(10px);
+            }
+            .qr-container {
+                margin: 20px 0;
+                padding: 20px;
+                background: white;
+                border-radius: 10px;
+                display: inline-block;
+            }
+            .instructions {
+                background: rgba(255,255,255,0.2);
+                padding: 15px;
+                border-radius: 10px;
+                margin: 20px 0;
+                text-align: left;
+            }
+            .btn {
+                background: #25D366;
+                color: white;
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 16px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                margin: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🤖 WhatsApp Bot con DeepSeek</h1>
+            
+            ${qrCodeUrl ? `
+            <div class="instructions">
+                <h3>📱 Para conectar WhatsApp:</h3>
+                <ol>
+                    <li>Abre WhatsApp en tu teléfono</li>
+                    <li>Ve a <strong>Ajustes → Dispositivos vinculados → Vincular un dispositivo</strong></li>
+                    <li>Escanea el código QR de abajo</li>
+                </ol>
+            </div>
+            
+            <div class="qr-container">
+                <h3>🔐 Código QR:</h3>
+                <img src="${qrCodeUrl}" alt="QR Code" style="border: 2px solid #333;">
+                <br><br>
+                <a href="${qrCodeUrl}" target="_blank" class="btn">🔗 Abrir QR en nueva pestaña</a>
+            </div>
+            
+            <p><strong>💡 Consejo:</strong> Si no puedes escanear, abre el enlace arriba en tu teléfono</p>
+            ` : `
+            <div style="background: rgba(76, 175, 80, 0.3); padding: 20px; border-radius: 10px;">
+                <h3>✅ WhatsApp Conectado</h3>
+                <p>El bot está funcionando correctamente.</p>
+                <p>Envía un mensaje al número vinculado para probarlo.</p>
+            </div>
+            `}
+            
+            <div style="margin-top: 30px;">
+                <p><strong>Revisa los logs en Railway para más detalles</strong></p>
+            </div>
+        </div>
+    </body>
+    </html>`;
+    
+    res.send(html);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌐 Servidor web ejecutándose en puerto ${PORT}`);
-    console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
-});
-
-// Manejar cierre graceful
-process.on('SIGINT', () => {
-    console.log('🛑 Cerrando bot...');
-    process.exit(0);
+    console.log(`🌐 Servidor web en: http://0.0.0.0:${PORT}`);
 });
