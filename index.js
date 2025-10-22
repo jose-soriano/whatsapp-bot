@@ -1,17 +1,19 @@
+// DEEPSEEK_API_KEY = 'sk-bdedac6848054c5cbf85316a0705df57';
+
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const axios = require('express');
+const axios = require('axios');
+const express = require('express');
 
 // CONFIGURACIÓN - REEMPLAZA CON TU API KEY DE DEEPSEEK
 const DEEPSEEK_API_KEY = 'sk-bdedac6848054c5cbf85316a0705df57';
 
 console.log('🚀 Iniciando WhatsApp Bot con DeepSeek...');
-console.log('📋 Configurando Puppeteer para Railway...');
 
-// CONFIGURACIÓN ESPECÍFICA PARA RAILWAY
+// CONFIGURACIÓN ESPECIAL PARA ENTORNOS CLOUD
 const client = new Client({
     authStrategy: new LocalAuth({
-        clientId: "whatsapp-bot-railway",
+        clientId: "railway-bot",
         dataPath: "./.wwebjs_auth"
     }),
     puppeteer: {
@@ -25,11 +27,12 @@ const client = new Client({
             '--no-zygote',
             '--disable-gpu',
             '--single-process',
-            '--no-sandbox',
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor'
-        ],
-        executablePath: process.env.CHROMIUM_PATH || undefined
+            '--disable-features=VizDisplayCompositor',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            '--max-old-space-size=512'
+        ]
     },
     webVersionCache: {
         type: 'remote',
@@ -65,14 +68,15 @@ async function chatWithDeepSeek(mensaje) {
                     role: 'system',
                     content: `Eres un asistente útil que responde mensajes de WhatsApp. 
                     Responde de manera natural y conversacional en el mismo idioma del usuario.
-                    Sé amable, conciso y útil. Mantén las respuestas apropiadas para WhatsApp.`
+                    Sé amable, conciso y útil. Mantén las respuestas apropiadas para WhatsApp.
+                    Máximo 3-4 líneas por respuesta.`
                 },
                 {
                     role: 'user',
                     content: mensaje
                 }
             ],
-            max_tokens: 800,
+            max_tokens: 500,
             temperature: 0.7,
             stream: false
         }, {
@@ -80,7 +84,7 @@ async function chatWithDeepSeek(mensaje) {
                 'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
                 'Content-Type': 'application/json'
             },
-            timeout: 30000
+            timeout: 25000
         });
 
         return response.data.choices[0].message.content;
@@ -140,35 +144,27 @@ client.on('authenticated', () => {
 
 client.on('auth_failure', (msg) => {
     console.error('❌ Error de autenticación:', msg);
-    console.log('🔄 Reiniciando en 10 segundos...');
+    console.log('🔄 Reiniciando en 15 segundos...');
     setTimeout(() => {
         client.initialize();
-    }, 10000);
+    }, 15000);
 });
 
 client.on('disconnected', (reason) => {
     console.log('❌ Desconectado de WhatsApp:', reason);
-    console.log('🔄 Reiniciando en 10 segundos...');
+    console.log('🔄 Reiniciando en 15 segundos...');
     setTimeout(() => {
         client.initialize();
-    }, 10000);
+    }, 15000);
 });
 
-// Manejar errores globales
-process.on('unhandledRejection', (error) => {
-    console.error('❌ Error no manejado:', error);
-});
-
-process.on('uncaughtException', (error) => {
-    console.error('❌ Excepción no capturada:', error);
-});
-
-// Inicializar bot
-console.log('🔄 Inicializando cliente de WhatsApp...');
-client.initialize();
+// Inicializar bot después de un breve delay
+setTimeout(() => {
+    console.log('🔄 Inicializando cliente de WhatsApp...');
+    client.initialize();
+}, 2000);
 
 // Servidor web simple para Railway
-const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -202,6 +198,15 @@ app.get('/', (req, res) => {
                         border-radius: 8px; 
                         margin: 20px 0; 
                     }
+                    .log { 
+                        background: rgba(0,0,0,0.3); 
+                        padding: 15px; 
+                        border-radius: 8px; 
+                        font-family: monospace;
+                        white-space: pre-wrap;
+                        max-height: 300px;
+                        overflow-y: auto;
+                    }
                 </style>
             </head>
             <body>
@@ -210,7 +215,7 @@ app.get('/', (req, res) => {
                     <div class="status">
                         <h3>✅ Bot funcionando correctamente</h3>
                         <p>El bot está activo y listo para responder mensajes.</p>
-                        <p><strong>Revisa la consola en Railway para ver los logs en tiempo real.</strong></p>
+                        <p><strong>Revisa la consola en Railway para ver el código QR y los logs.</strong></p>
                     </div>
                     <h3>📊 Estado del servicio:</h3>
                     <ul>
@@ -218,7 +223,7 @@ app.get('/', (req, res) => {
                         <li>🧠 DeepSeek AI: <span style="color: #4CAF50;">● Activo</span></li>
                         <li>🌐 Servidor: <span style="color: #4CAF50;">● Online</span></li>
                     </ul>
-                    <p><em>Para ver los mensajes y respuestas en tiempo real, revisa la pestaña "Logs" en Railway.</em></p>
+                    <p><em>Para conectar WhatsApp, escanea el código QR que aparece en los logs de Railway.</em></p>
                 </div>
             </body>
         </html>
@@ -237,4 +242,10 @@ app.get('/health', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Servidor web ejecutándose en puerto ${PORT}`);
     console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
+});
+
+// Manejar cierre graceful
+process.on('SIGINT', () => {
+    console.log('🛑 Cerrando bot...');
+    process.exit(0);
 });
